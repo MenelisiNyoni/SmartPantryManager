@@ -2,10 +2,9 @@ package com.example.smartpantrymanager;
 
 import android.content.ContentValues;
 import android.content.Context;
+import android.database.Cursor;
 import android.database.sqlite.SQLiteDatabase;
 import android.database.sqlite.SQLiteOpenHelper;
-import android.content.ContentValues;
-import android.database.Cursor;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -14,17 +13,20 @@ public class DatabaseHelper extends SQLiteOpenHelper {
     private static final String DATABASE_NAME = "smart_pantry.db";
     private static final int DATABASE_VERSION = 1;
 
+    // Pantry Table
     public static final String TABLE_PANTRY = "pantry";
     public static final String COLUMN_PANTRY_ID = "id";
     public static final String COLUMN_PANTRY_NAME = "name";
     public static final String COLUMN_PANTRY_QTY = "quantity";
     public static final String COLUMN_PANTRY_UNIT = "unit";
 
+    // Recipes Table
     public static final String TABLE_RECIPES = "recipes";
     public static final String COLUMN_RECIPE_ID = "id";
     public static final String COLUMN_RECIPE_NAME = "name";
     public static final String COLUMN_RECIPE_STEPS = "steps";
 
+    // Recipe Ingredients Table (Junction)
     public static final String TABLE_RECIPE_INGREDIENTS = "recipe_ingredients";
     public static final String COLUMN_RI_RECIPE_ID = "recipe_id";
     public static final String COLUMN_RI_NAME = "ingredient_name";
@@ -59,6 +61,139 @@ public class DatabaseHelper extends SQLiteOpenHelper {
         seedRecipes(db);
     }
 
+    @Override
+    public void onUpgrade(SQLiteDatabase db, int oldVersion, int newVersion) {
+        db.execSQL("DROP TABLE IF EXISTS " + TABLE_PANTRY);
+        db.execSQL("DROP TABLE IF EXISTS " + TABLE_RECIPES);
+        db.execSQL("DROP TABLE IF EXISTS " + TABLE_RECIPE_INGREDIENTS);
+        onCreate(db);
+    }
+
+    // --- PANTRY CRUD OPERATIONS ---
+
+    public boolean addPantryItem(String name, double qty, String unit) {
+        SQLiteDatabase db = this.getWritableDatabase();
+        ContentValues cv = new ContentValues();
+        cv.put(COLUMN_PANTRY_NAME, normalize(name));
+        cv.put(COLUMN_PANTRY_QTY, qty);
+        cv.put(COLUMN_PANTRY_UNIT, unit);
+        long result = db.insert(TABLE_PANTRY, null, cv);
+        return result != -1;
+    }
+
+    public boolean updatePantryItem(int id, String name, double qty, String unit) {
+        SQLiteDatabase db = this.getWritableDatabase();
+        ContentValues cv = new ContentValues();
+        cv.put(COLUMN_PANTRY_NAME, normalize(name));
+        cv.put(COLUMN_PANTRY_QTY, qty);
+        cv.put(COLUMN_PANTRY_UNIT, unit);
+        int result = db.update(TABLE_PANTRY, cv, COLUMN_PANTRY_ID + "=?", new String[]{String.valueOf(id)});
+        return result > 0;
+    }
+
+    public boolean deletePantryItem(int id) {
+        SQLiteDatabase db = this.getWritableDatabase();
+        int result = db.delete(TABLE_PANTRY, COLUMN_PANTRY_ID + "=?", new String[]{String.valueOf(id)});
+        return result > 0;
+    }
+
+    public Cursor getAllPantryItems() {
+        SQLiteDatabase db = this.getReadableDatabase();
+        return db.rawQuery("SELECT * FROM " + TABLE_PANTRY, null);
+    }
+
+    public List<PantryItem> getAllPantryItemsList() {
+        List<PantryItem> itemList = new ArrayList<>();
+        SQLiteDatabase db = this.getReadableDatabase();
+        Cursor cursor = db.rawQuery("SELECT * FROM " + TABLE_PANTRY, null);
+        if (cursor.moveToFirst()) {
+            do {
+                int id = cursor.getInt(cursor.getColumnIndexOrThrow(COLUMN_PANTRY_ID));
+                String name = cursor.getString(cursor.getColumnIndexOrThrow(COLUMN_PANTRY_NAME));
+                double quantity = cursor.getDouble(cursor.getColumnIndexOrThrow(COLUMN_PANTRY_QTY));
+                String unit = cursor.getString(cursor.getColumnIndexOrThrow(COLUMN_PANTRY_UNIT));
+                itemList.add(new PantryItem(id, name, quantity, unit));
+            } while (cursor.moveToNext());
+        }
+        cursor.close();
+        return itemList;
+    }
+
+    // --- STRICT MATCHING CORE LOGIC ---
+
+    public List<Recipe> getSuggestedRecipes() {
+        List<Recipe> matchingRecipes = new ArrayList<>();
+        SQLiteDatabase db = this.getReadableDatabase();
+
+        // 1. Fetch all pantry items into memory
+        List<PantryItem> pantryList = getAllPantryItemsList();
+
+        // 2. Fetch all recipes
+        Cursor recipeCursor = db.rawQuery("SELECT * FROM " + TABLE_RECIPES, null);
+        if (recipeCursor.moveToFirst()) {
+            do {
+                int recipeId = recipeCursor.getInt(0);
+                String recipeName = recipeCursor.getString(1);
+                String steps = recipeCursor.getString(2);
+
+                // Fetch required ingredients for this recipe
+                Cursor ingCursor = db.rawQuery("SELECT * FROM " + TABLE_RECIPE_INGREDIENTS +
+                        " WHERE " + COLUMN_RI_RECIPE_ID + "=?", new String[]{String.valueOf(recipeId)});
+
+                boolean allIngredientsAvailable = true;
+                List<String> requiredIngDetails = new ArrayList<>();
+                int requiredCount = ingCursor.getCount();
+
+                if (requiredCount == 0) allIngredientsAvailable = false;
+
+                while (ingCursor.moveToNext()) {
+                    String reqName = ingCursor.getString(1);
+                    double reqQty = ingCursor.getDouble(2);
+                    requiredIngDetails.add(reqQty + " x " + reqName);
+
+                    // Strict matching check against pantry items
+                    boolean itemFound = false;
+                    for (PantryItem pItem : pantryList) {
+                        if (isMatch(pItem.getName(), reqName) && pItem.getQuantity() >= reqQty) {
+                            itemFound = true;
+                            break;
+                        }
+                    }
+
+                    if (!itemFound) {
+                        allIngredientsAvailable = false;
+                        break; // Strict rule broken: recipe disqualified
+                    }
+                }
+                ingCursor.close();
+
+                if (allIngredientsAvailable) {
+                    matchingRecipes.add(new Recipe(recipeId, recipeName, steps, requiredIngDetails));
+                }
+
+            } while (recipeCursor.moveToNext());
+        }
+        recipeCursor.close();
+        return matchingRecipes;
+    }
+
+    // Simple normalization for basic singular/plural/case matching
+    private String normalize(String input) {
+        if (input == null) return "";
+        String trimmed = input.trim().toLowerCase();
+        if (trimmed.endsWith("es") && trimmed.length() > 3) {
+            return trimmed.substring(0, trimmed.length() - 2);
+        } else if (trimmed.endsWith("s") && trimmed.length() > 2) {
+            return trimmed.substring(0, trimmed.length() - 1);
+        }
+        return trimmed;
+    }
+
+    private boolean isMatch(String pantryIng, String recipeIng) {
+        return normalize(pantryIng).equals(normalize(recipeIng));
+    }
+
+    // --- SEED 15 RECIPES ON FIRST LAUNCH ---
     private void seedRecipes(SQLiteDatabase db) {
         insertRecipeWithIngredients(db, "Scrambled Eggs", "Beat eggs with salt. Melt butter in pan over low heat. Cook until soft curds form.",
                 new String[]{"egg", "butter", "salt"}, new double[]{2, 1, 1});
@@ -115,144 +250,9 @@ public class DatabaseHelper extends SQLiteOpenHelper {
         for (int i = 0; i < ings.length; i++) {
             ContentValues ingCv = new ContentValues();
             ingCv.put(COLUMN_RI_RECIPE_ID, recId);
-            ingCv.put(COLUMN_RI_NAME, ings[i]);
+            ingCv.put(COLUMN_RI_NAME, normalize(ings[i]));
             ingCv.put(COLUMN_RI_QTY, qtys[i]);
             db.insert(TABLE_RECIPE_INGREDIENTS, null, ingCv);
         }
-    }
-
-    @Override
-    public void onUpgrade(SQLiteDatabase db, int oldVersion, int newVersion) {
-        db.execSQL("DROP TABLE IF EXISTS " + TABLE_PANTRY);
-        db.execSQL("DROP TABLE IF EXISTS " + TABLE_RECIPES);
-        db.execSQL("DROP TABLE IF EXISTS " + TABLE_RECIPE_INGREDIENTS);
-        onCreate(db);
-    }
-// --- Pantry CRUD Operations ---
-
-    public boolean addPantryItem(String name, double quantity, String unit) {
-        SQLiteDatabase db = this.getWritableDatabase();
-        ContentValues cv = new ContentValues();
-        cv.put("name", name);
-        cv.put("quantity", quantity);
-        cv.put("unit", unit);
-        long result = db.insert("pantry", null, cv);
-        return result != -1;
-    }
-
-    public boolean updatePantryItem(int id, String name, double quantity, String unit) {
-        SQLiteDatabase db = this.getWritableDatabase();
-        ContentValues cv = new ContentValues();
-        cv.put("name", name);
-        cv.put("quantity", quantity);
-        cv.put("unit", unit);
-        int result = db.update("pantry", cv, "id=?", new String[]{String.valueOf(id)});
-        return result > 0;
-    }
-
-    public boolean deletePantryItem(int id) {
-        SQLiteDatabase db = this.getWritableDatabase();
-        int result = db.delete("pantry", "id=?", new String[]{String.valueOf(id)});
-        return result > 0;
-    }
-
-    public java.util.List<PantryItem> getAllPantryItems() {
-        java.util.List<PantryItem> itemList = new java.util.ArrayList<>();
-        SQLiteDatabase db = this.getReadableDatabase();
-        Cursor cursor = db.rawQuery("SELECT * FROM pantry", null);
-
-        if (cursor.moveToFirst()) {
-            do {
-                int id = cursor.getInt(cursor.getColumnIndexOrThrow("id"));
-                String name = cursor.getString(cursor.getColumnIndexOrThrow("name"));
-                double quantity = cursor.getDouble(cursor.getColumnIndexOrThrow("quantity"));
-                String unit = cursor.getString(cursor.getColumnIndexOrThrow("unit"));
-                itemList.add(new PantryItem(id, name, quantity, unit));
-            } while (cursor.moveToNext());
-        }
-        cursor.close();
-        return itemList;
-    }
-
-    // --- Recipe Matching Logic (Strict Matching) ---
-
-    public java.util.List<String> getSuggestedRecipes() {
-        java.util.List<String> suggestedRecipes = new java.util.ArrayList<>();
-        SQLiteDatabase db = this.getReadableDatabase();
-
-        String query = "SELECT r.name FROM recipes r " +
-                "WHERE NOT EXISTS (" +
-                "    SELECT ri.ingredient_name FROM recipe_ingredients ri " +
-                "    WHERE ri.recipe_id = r.id " +
-                "    EXCEPT " +
-                "    SELECT p.name FROM pantry p" +
-                ")";
-
-        Cursor cursor = db.rawQuery(query, null);
-        if (cursor.moveToFirst()) {
-            do {
-                suggestedRecipes.add(cursor.getString(0));
-            } while (cursor.moveToNext());
-        }
-        cursor.close();
-        return suggestedRecipes;
-    }
-    // Method using normalized string comparisons
-    public java.util.List<String> getSuggestedRecipesNormalized() {
-        java.util.List<String> matchingRecipes = new java.util.ArrayList<>();
-        SQLiteDatabase db = this.getReadableDatabase();
-
-        // Get all pantry item names normalized
-        java.util.Set<String> pantryItems = new java.util.HashSet<>();
-        Cursor pantryCursor = db.rawQuery("SELECT name FROM pantry", null);
-        if (pantryCursor.moveToFirst()) {
-            do {
-                pantryItems.add(normalize(pantryCursor.getString(0)));
-            } while (pantryCursor.moveToNext());
-        }
-        pantryCursor.close();
-
-        // Check recipes against normalized pantry items
-        Cursor recipeCursor = db.rawQuery("SELECT id, name FROM recipes", null);
-        if (recipeCursor.moveToFirst()) {
-            do {
-                int recipeId = recipeCursor.getInt(0);
-                String recipeName = recipeCursor.getString(1);
-
-                Cursor ingCursor = db.rawQuery("SELECT ingredient_name FROM recipe_ingredients WHERE recipe_id = ?",
-                        new String[]{String.valueOf(recipeId)});
-
-                boolean hasAllIngredients = true;
-                if (ingCursor.moveToFirst()) {
-                    do {
-                        String ingredient = normalize(ingCursor.getString(0));
-                        if (!pantryItems.contains(ingredient)) {
-                            hasAllIngredients = false;
-                            break;
-                        }
-                    } while (ingCursor.moveToNext());
-                }
-                ingCursor.close();
-
-                if (hasAllIngredients) {
-                    matchingRecipes.add(recipeName);
-                }
-            } while (recipeCursor.moveToNext());
-        }
-        recipeCursor.close();
-
-        return matchingRecipes;
-    }
-
-    // Helper method to normalize ingredient names (trimming, lowercase, singularization)
-    private String normalize(String input) {
-        if (input == null) return "";
-        String trimmed = input.trim().toLowerCase();
-        if (trimmed.endsWith("es") && trimmed.length() > 3) {
-            return trimmed.substring(0, trimmed.length() - 2);
-        } else if (trimmed.endsWith("s") && trimmed.length() > 2) {
-            return trimmed.substring(0, trimmed.length() - 1);
-        }
-        return trimmed;
     }
 }
