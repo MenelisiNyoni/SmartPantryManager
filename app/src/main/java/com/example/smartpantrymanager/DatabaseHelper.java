@@ -4,6 +4,10 @@ import android.content.ContentValues;
 import android.content.Context;
 import android.database.sqlite.SQLiteDatabase;
 import android.database.sqlite.SQLiteOpenHelper;
+import android.content.ContentValues;
+import android.database.Cursor;
+import java.util.ArrayList;
+import java.util.List;
 
 public class DatabaseHelper extends SQLiteOpenHelper {
 
@@ -123,5 +127,50 @@ public class DatabaseHelper extends SQLiteOpenHelper {
         db.execSQL("DROP TABLE IF EXISTS " + TABLE_RECIPES);
         db.execSQL("DROP TABLE IF EXISTS " + TABLE_RECIPE_INGREDIENTS);
         onCreate(db);
+    }
+// --- Pantry CRUD Operations ---
+
+    public boolean addPantryItem(String name, double quantity, String unit) {
+        SQLiteDatabase db = this.getWritableDatabase();
+        ContentValues cv = new ContentValues();
+        cv.put("name", name);
+        cv.put("quantity", quantity);
+        cv.put("unit", unit);
+        long result = db.insert("pantry", null, cv);
+        return result != -1;
+    }
+
+    public boolean updatePantryItem(int id, String name, double quantity, String unit) {
+        SQLiteDatabase db = this.getWritableDatabase();
+        ContentValues cv = new ContentValues();
+        cv.put("name", name);
+        cv.put("quantity", quantity);
+        cv.put("unit", unit);
+        int result = db.update("pantry", cv, "id=?", new String[]{String.valueOf(id)});
+        return result > 0;
+    }
+
+    public boolean deletePantryItem(int id) {
+        SQLiteDatabase db = this.getWritableDatabase();
+        int result = db.delete("pantry", "id=?", new String[]{String.valueOf(id)});
+        return result > 0;
+    }
+
+    public java.util.List<PantryItem> getAllPantryItems() {
+        java.util.List<PantryItem> itemList = new java.util.ArrayList<>();
+        SQLiteDatabase db = this.getReadableDatabase();
+        Cursor cursor = db.rawQuery("SELECT * FROM pantry", null);
+
+        if (cursor.moveToFirst()) {
+            do {
+                int id = cursor.getInt(cursor.getColumnIndexOrThrow("id"));
+                String name = cursor.getString(cursor.getColumnIndexOrThrow("name"));
+                double quantity = cursor.getDouble(cursor.getColumnIndexOrThrow("quantity"));
+                String unit = cursor.getString(cursor.getColumnIndexOrThrow("unit"));
+                itemList.add(new PantryItem(id, name, quantity, unit));
+            } while (cursor.moveToNext());
+        }
+        cursor.close();
+        return itemList;
     }
 }
