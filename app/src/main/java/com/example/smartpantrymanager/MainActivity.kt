@@ -28,6 +28,25 @@ class MainActivity : ComponentActivity() {
             }
         }
     }
+    private fun validateAndSaveItem(nameInput: String, quantityInput: String, unit: String): Boolean {
+        // 1. Validate empty name
+        if (nameInput.trim().isEmpty()) {
+            android.widget.Toast.makeText(this, "Please enter an item name", android.widget.Toast.LENGTH_SHORT).show()
+            return false
+        }
+
+        // 2. Validate quantity number format
+        val quantity = try {
+            quantityInput.trim().toDouble()
+        } catch (e: NumberFormatException) {
+            android.widget.Toast.makeText(this, "Please enter a valid quantity", android.widget.Toast.LENGTH_SHORT).show()
+            return false
+        }
+
+        // 3. Save to database
+        val dbHelper = DatabaseHelper(this)
+        return dbHelper.addPantryItem(nameInput.trim(), quantity, unit)
+    }
 }
 
 @Composable
