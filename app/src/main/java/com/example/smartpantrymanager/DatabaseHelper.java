@@ -173,14 +173,14 @@ public class DatabaseHelper extends SQLiteOpenHelper {
         cursor.close();
         return itemList;
     }
+
     // --- Recipe Matching Logic (Strict Matching) ---
 
     public java.util.List<String> getSuggestedRecipes() {
         java.util.List<String> suggestedRecipes = new java.util.ArrayList<>();
         SQLiteDatabase db = this.getReadableDatabase();
 
-        // Query to find recipes where ALL required ingredients exist in the pantry
-        String query = "SELECT r.recipe_name FROM recipes r " +
+        String query = "SELECT r.name FROM recipes r " +
                 "WHERE NOT EXISTS (" +
                 "    SELECT ri.ingredient_name FROM recipe_ingredients ri " +
                 "    WHERE ri.recipe_id = r.id " +
@@ -196,5 +196,63 @@ public class DatabaseHelper extends SQLiteOpenHelper {
         }
         cursor.close();
         return suggestedRecipes;
+    }
+    // Method using normalized string comparisons
+    public java.util.List<String> getSuggestedRecipesNormalized() {
+        java.util.List<String> matchingRecipes = new java.util.ArrayList<>();
+        SQLiteDatabase db = this.getReadableDatabase();
+
+        // Get all pantry item names normalized
+        java.util.Set<String> pantryItems = new java.util.HashSet<>();
+        Cursor pantryCursor = db.rawQuery("SELECT name FROM pantry", null);
+        if (pantryCursor.moveToFirst()) {
+            do {
+                pantryItems.add(normalize(pantryCursor.getString(0)));
+            } while (pantryCursor.moveToNext());
+        }
+        pantryCursor.close();
+
+        // Check recipes against normalized pantry items
+        Cursor recipeCursor = db.rawQuery("SELECT id, name FROM recipes", null);
+        if (recipeCursor.moveToFirst()) {
+            do {
+                int recipeId = recipeCursor.getInt(0);
+                String recipeName = recipeCursor.getString(1);
+
+                Cursor ingCursor = db.rawQuery("SELECT ingredient_name FROM recipe_ingredients WHERE recipe_id = ?",
+                        new String[]{String.valueOf(recipeId)});
+
+                boolean hasAllIngredients = true;
+                if (ingCursor.moveToFirst()) {
+                    do {
+                        String ingredient = normalize(ingCursor.getString(0));
+                        if (!pantryItems.contains(ingredient)) {
+                            hasAllIngredients = false;
+                            break;
+                        }
+                    } while (ingCursor.moveToNext());
+                }
+                ingCursor.close();
+
+                if (hasAllIngredients) {
+                    matchingRecipes.add(recipeName);
+                }
+            } while (recipeCursor.moveToNext());
+        }
+        recipeCursor.close();
+
+        return matchingRecipes;
+    }
+
+    // Helper method to normalize ingredient names (trimming, lowercase, singularization)
+    private String normalize(String input) {
+        if (input == null) return "";
+        String trimmed = input.trim().toLowerCase();
+        if (trimmed.endsWith("es") && trimmed.length() > 3) {
+            return trimmed.substring(0, trimmed.length() - 2);
+        } else if (trimmed.endsWith("s") && trimmed.length() > 2) {
+            return trimmed.substring(0, trimmed.length() - 1);
+        }
+        return trimmed;
     }
 }
