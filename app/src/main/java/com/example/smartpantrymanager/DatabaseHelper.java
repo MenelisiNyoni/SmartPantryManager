@@ -1,5 +1,6 @@
 package com.example.smartpantrymanager;
 
+import android.content.ContentValues;
 import android.content.Context;
 import android.database.sqlite.SQLiteDatabase;
 import android.database.sqlite.SQLiteOpenHelper;
@@ -50,6 +51,70 @@ public class DatabaseHelper extends SQLiteOpenHelper {
         db.execSQL(createPantry);
         db.execSQL(createRecipes);
         db.execSQL(createRecipeIngredients);
+
+        seedRecipes(db);
+    }
+
+    private void seedRecipes(SQLiteDatabase db) {
+        insertRecipeWithIngredients(db, "Scrambled Eggs", "Beat eggs with salt. Melt butter in pan over low heat. Cook until soft curds form.",
+                new String[]{"egg", "butter", "salt"}, new double[]{2, 1, 1});
+
+        insertRecipeWithIngredients(db, "Omelette", "Whisk eggs. Pour into hot oiled pan. Add cheese, fold over, and serve.",
+                new String[]{"egg", "cheese", "oil"}, new double[]{3, 1, 1});
+
+        insertRecipeWithIngredients(db, "Grilled Cheese Sandwich", "Butter bread. Place cheese between slices. Grill in pan until golden.",
+                new String[]{"bread", "cheese", "butter"}, new double[]{2, 2, 1});
+
+        insertRecipeWithIngredients(db, "French Toast", "Whisk egg and milk. Dip bread. Fry in butter until brown on both sides.",
+                new String[]{"bread", "egg", "milk", "butter"}, new double[]{2, 1, 1, 1});
+
+        insertRecipeWithIngredients(db, "Basic Pasta", "Boil pasta in salted water. Drain, toss with olive oil and garlic.",
+                new String[]{"pasta", "oil", "garlic", "salt"}, new double[]{1, 1, 1, 1});
+
+        insertRecipeWithIngredients(db, "Tomato Pasta", "Boil pasta. Sauté garlic and canned tomato in oil. Mix together.",
+                new String[]{"pasta", "tomato", "garlic", "oil"}, new double[]{1, 2, 1, 1});
+
+        insertRecipeWithIngredients(db, "Fried Rice", "Heat oil. Sauté rice with egg, garlic, and salt until fluffy.",
+                new String[]{"rice", "egg", "garlic", "oil", "salt"}, new double[]{1, 2, 1, 1, 1});
+
+        insertRecipeWithIngredients(db, "Rice and Beans", "Cook rice. Heat canned beans with garlic and oil. Serve together.",
+                new String[]{"rice", "beans", "garlic", "oil"}, new double[]{1, 1, 1, 1});
+
+        insertRecipeWithIngredients(db, "Garlic Bread", "Slice bread. Spread mixed butter and garlic. Bake at 180C for 10 mins.",
+                new String[]{"bread", "butter", "garlic"}, new double[]{1, 1, 1});
+
+        insertRecipeWithIngredients(db, "Pancakes", "Mix flour, egg, and milk into batter. Cook spoonfuls on oiled hot pan.",
+                new String[]{"flour", "egg", "milk", "oil"}, new double[]{1, 1, 1, 1});
+
+        insertRecipeWithIngredients(db, "Egg Salad", "Boil eggs. Mash with salt and oil or mayonnaise. Serve on bread.",
+                new String[]{"egg", "bread", "salt", "oil"}, new double[]{2, 2, 1, 1});
+
+        insertRecipeWithIngredients(db, "Cheese Toastie", "Place cheese on bread. Toast in oven or toaster until melted.",
+                new String[]{"bread", "cheese"}, new double[]{2, 1});
+
+        insertRecipeWithIngredients(db, "Boiled Eggs with Salt", "Boil eggs in water for 8 minutes. Peel and season with salt.",
+                new String[]{"egg", "salt"}, new double[]{2, 1});
+
+        insertRecipeWithIngredients(db, "Simple Tomato Salad", "Slice tomatoes. Drizzle with oil and season with salt.",
+                new String[]{"tomato", "oil", "salt"}, new double[]{2, 1, 1});
+
+        insertRecipeWithIngredients(db, "Garlic Rice", "Fry garlic in oil until golden. Add cooked rice and stir fry.",
+                new String[]{"rice", "garlic", "oil"}, new double[]{1, 2, 1});
+    }
+
+    private void insertRecipeWithIngredients(SQLiteDatabase db, String name, String steps, String[] ings, double[] qtys) {
+        ContentValues cv = new ContentValues();
+        cv.put(COLUMN_RECIPE_NAME, name);
+        cv.put(COLUMN_RECIPE_STEPS, steps);
+        long recId = db.insert(TABLE_RECIPES, null, cv);
+
+        for (int i = 0; i < ings.length; i++) {
+            ContentValues ingCv = new ContentValues();
+            ingCv.put(COLUMN_RI_RECIPE_ID, recId);
+            ingCv.put(COLUMN_RI_NAME, ings[i]);
+            ingCv.put(COLUMN_RI_QTY, qtys[i]);
+            db.insert(TABLE_RECIPE_INGREDIENTS, null, ingCv);
+        }
     }
 
     @Override
