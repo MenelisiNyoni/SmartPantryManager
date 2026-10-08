@@ -173,4 +173,28 @@ public class DatabaseHelper extends SQLiteOpenHelper {
         cursor.close();
         return itemList;
     }
+    // --- Recipe Matching Logic (Strict Matching) ---
+
+    public java.util.List<String> getSuggestedRecipes() {
+        java.util.List<String> suggestedRecipes = new java.util.ArrayList<>();
+        SQLiteDatabase db = this.getReadableDatabase();
+
+        // Query to find recipes where ALL required ingredients exist in the pantry
+        String query = "SELECT r.recipe_name FROM recipes r " +
+                "WHERE NOT EXISTS (" +
+                "    SELECT ri.ingredient_name FROM recipe_ingredients ri " +
+                "    WHERE ri.recipe_id = r.id " +
+                "    EXCEPT " +
+                "    SELECT p.name FROM pantry p" +
+                ")";
+
+        Cursor cursor = db.rawQuery(query, null);
+        if (cursor.moveToFirst()) {
+            do {
+                suggestedRecipes.add(cursor.getString(0));
+            } while (cursor.moveToNext());
+        }
+        cursor.close();
+        return suggestedRecipes;
+    }
 }
